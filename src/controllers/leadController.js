@@ -1,12 +1,11 @@
-import Lead from '../models/Lead.js'
 import { validateLeadData } from '../utils/validators.js'
 
-// POST /api/lead/capture
+// POST /api/lead/capture - Simplified version without database
 export async function captureLeadController(req, res) {
     try {
         const { name, email } = req.body
 
-        // Validate input and get sanitized data (SECURITY: prevents SQL injection and XSS)
+        // Validate input
         const validation = validateLeadData(name, email)
 
         if (!validation.isValid) {
@@ -16,23 +15,17 @@ export async function captureLeadController(req, res) {
             })
         }
 
-        // Use sanitized data (SECURITY: prevents SQL injection and XSS)
         const { name: cleanName, email: cleanEmail } = validation.sanitized
 
-        // Save to database with sanitized data (WhatsApp is "N/A" to satisfy DB constraint)
-        const lead = await Lead.create(cleanName, "N/A", cleanEmail)
-
-        console.log(`✅ Lead captured: ${lead.id} - ${lead.name} (${lead.email})`)
+        console.log(`📧 Processing lead: ${cleanName} (${cleanEmail})`)
 
         // CRM Integration: Brevo (Sendinblue)
-        let brevoError = null;
         try {
-            // Robust Import for ESM/CommonJS compatibility
             const brevoModule = await import('sib-api-v3-sdk');
             const SibApiV3Sdk = brevoModule.default || brevoModule;
 
             if (!SibApiV3Sdk || !SibApiV3Sdk.ApiClient) {
-                throw new Error("Falha ao carregar SDK do Brevo: ApiClient indefinido");
+                throw new Error("Failed to load Brevo SDK");
             }
 
             const defaultClient = SibApiV3Sdk.ApiClient.instance;
@@ -48,95 +41,51 @@ export async function captureLeadController(req, res) {
             };
             createContact.listIds = [parseInt(process.env.BREVO_LIST_ID || 2)];
 
-            console.log("CAMPOS ENVIADOS:", JSON.stringify(createContact));
+            await apiInstance.createContact(createContact);
+            console.log(`✅ Lead sent to Brevo: ${cleanName} (${cleanEmail})`);
 
-            const data = await apiInstance.createContact(createContact);
-            console.log('✅ Contact saved to Brevo CRM. ID: ' + data.id);
-
-        } catch (error) {
-            brevoError = error.response ? error.response.text : error.message;
-            console.log("ERRO DETALHADO BREVO:", brevoError);
-
-            // Ignore "Contact already exists" error (400)
-            if (error.status === 400) {
-                console.log('⚠️ Contact already exists in Brevo.');
-            } else {
-                console.error('❌ Error saving to Brevo:', error);
-            }
+        } catch (brevoError) {
+            console.error('⚠️ Brevo error:', brevoError.message);
+            // Continue even if Brevo fails
         }
 
-        res.status(201).json({
+        // Return success
+        return res.status(201).json({
             success: true,
-            leadId: lead.id,
-            message: 'Lead capturado com sucesso!',
-            brevoError: brevoError,
+            message: 'Lead captured successfully',
             data: {
-                id: lead.id,
-                name: lead.name,
-                status: lead.status
+                name: cleanName,
+                email: cleanEmail
             }
         })
 
     } catch (error) {
-        console.error('❌ Error capturing lead:', error)
-        console.error('Stack:', error.stack)
-        console.error('Request Body:', JSON.stringify(req.body, null, 2))
-
-        // Detailed error for debugging
-        const errorDetails = error.response ? error.response.text : error.message;
-
-        res.status(500).json({
+        console.error('❌ Lead capture error:', error)
+        return res.status(500).json({
             success: false,
-            message: 'Erro interno ao salvar lead',
-            error: error.message,
-            details: errorDetails,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            message: 'Failed to capture lead',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         })
     }
 }
 
-// GET /api/lead/stats (bonus - for CRM dashboard)
+// GET /api/lead/stats - Simplified (no database)
 export async function getLeadStatsController(req, res) {
-    try {
-        const stats = await Lead.countByStatus()
-
-        res.json({
-            success: true,
-            stats
-        })
-    } catch (error) {
-        console.error('❌ Error getting stats:', error)
-        res.status(500).json({
-            success: false,
-            message: 'Erro ao buscar estatísticas',
-            error: error.message
-        })
-    }
+    return res.status(200).json({
+        success: true,
+        message: 'Stats not available in serverless mode',
+        stats: {
+            total: 0,
+            today: 0
+        }
+    })
 }
 
-// GET /api/lead/list (bonus - for CRM dashboard)
+// GET /api/lead/list - Simplified (no database)
 export async function listLeadsController(req, res) {
-    try {
-        const { status, limit = 50, offset = 0 } = req.query
-
-        let leads
-        if (status) {
-            leads = await Lead.getByStatus(status)
-        } else {
-            leads = await Lead.getAll(parseInt(limit), parseInt(offset))
-        }
-
-        res.json({
-            success: true,
-            count: leads.length,
-            leads
-        })
-    } catch (error) {
-        console.error('❌ Error listing leads:', error)
-        res.status(500).json({
-            success: false,
-            message: 'Erro ao listar leads',
-            error: error.message
-        })
-    }
+    return res.status(200).json({
+        success: true,
+        message: 'List not available in serverless mode',
+        leads: []
+    })
 }
