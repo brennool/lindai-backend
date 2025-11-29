@@ -10,10 +10,9 @@ import paymentRoutes from './routes/paymentRoutes.js'
 dotenv.config()
 
 const app = express()
-// CHANGE: Use port 3003 to avoid conflicts with zombie processes
 const PORT = process.env.PORT || 3003
 
-// Middleware
+// Middleware - CORS Configuration
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl requests)
@@ -25,6 +24,7 @@ app.use(cors({
             'http://localhost:3004',
             'http://localhost:5173',
             'http://localhost:5174',
+            'https://lindai-web.vercel.app',
             process.env.FRONTEND_URL
         ];
 
