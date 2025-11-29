@@ -9,11 +9,18 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 3003
 
-// Middleware - CORS Configuration
+// Middleware - CORS Configuration (Fixed for preflight requests)
 app.use(cors({
     origin: true,
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 600
 }))
+
+// Handle preflight requests explicitly
+app.options('*', cors())
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
