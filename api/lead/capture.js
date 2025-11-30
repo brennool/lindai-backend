@@ -1,13 +1,20 @@
-// Vercel Serverless Function - Lead Capture
+// Vercel Serverless Function - Lead Capture (Security Hardened)
 export default async function handler(req, res) {
-    // CORS Headers (Complete configuration)
+    // CORS Headers (Restricted to production domains for security)
+    const allowedOrigins = [
+        'https://www.lindai.com.br',
+        'https://lindai.com.br',
+        'https://lindai-web.vercel.app'
+    ];
+
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+
     res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader(
-        'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-    );
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     // Handle preflight
     if (req.method === 'OPTIONS') {
@@ -23,24 +30,49 @@ export default async function handler(req, res) {
     try {
         const { name, email } = req.body;
 
-        // Basic validation
-        if (!name || !email) {
+        // Input sanitization function
+        const sanitizeName = (str) => {
+            if (!str) return '';
+            return str.trim()
+                .replace(/[<>]/g, '')                    // Remove < e > (XSS prevention)
+                .replace(/[^\w\s\u00C0-\u017F]/g, '')   // Apenas letras, números, espaços e acentos
+                .substring(0, 100);                      // Limita tamanho
+        };
+
+        const sanitizedName = sanitizeName(name);
+        const sanitizedEmail = email ? email.trim().toLowerCase().substring(0, 255) : '';
+
+        // Enhanced validation
+        if (!sanitizedName || !sanitizedEmail) {
             return res.status(400).json({
                 success: false,
                 errors: ['Nome e email são obrigatórios']
             });
         }
 
-        // Email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+        // Name validation
+        if (sanitizedName.length < 2) {
+            return res.status(400).json({
+                success: false,
+                errors: ['Nome deve ter pelo menos 2 caracteres']
+            });
+        }
+
+        if (sanitizedName.length > 100) {
+            return res.status(400).json({
+                success: false,
+                errors: ['Nome muito longo (máximo 100 caracteres)']
+            });
+        }
+
+        // Email validation (more robust)
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+        if (!emailRegex.test(sanitizedEmail)) {
             return res.status(400).json({
                 success: false,
                 errors: ['Email inválido']
             });
         }
-
-        console.log(`📧 Processing lead: ${name} (${email})`);
 
         // Send to Brevo CRM
         try {
@@ -54,28 +86,28 @@ export default async function handler(req, res) {
             const apiInstance = new SibApiV3Sdk.ContactsApi();
             const createContact = new SibApiV3Sdk.CreateContact();
 
-            createContact.email = email;
+            createContact.email = sanitizedEmail;
             createContact.attributes = {
-                "FIRSTNAME": name
+                "FIRSTNAME": sanitizedName
             };
             createContact.listIds = [parseInt(process.env.BREVO_LIST_ID || 2)];
 
             await apiInstance.createContact(createContact);
-            console.log(`✅ Lead sent to Brevo: ${name} (${email})`);
+
+            // Only log in development (security: don't expose PII in production logs)
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`✅ Lead sent to Brevo: ${sanitizedName} (${sanitizedEmail})`);
+            }
 
         } catch (brevoError) {
             console.error('⚠️ Brevo error:', brevoError.message);
             // Continue even if Brevo fails
         }
 
-        // Return success
+        // Return success (without exposing personal data)
         return res.status(201).json({
             success: true,
-            message: 'Lead captured successfully',
-            data: {
-                name,
-                email
-            }
+            message: 'Lead captured successfully'
         });
 
     } catch (error) {
